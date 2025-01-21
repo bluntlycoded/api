@@ -14,10 +14,7 @@ dotenv.config();  // Load environment variables from .env file
 const app = express();
 
 
-app.use(cors({
-  origin: 'http://localhost:3000', // Frontend URL
-  credentials: true, // Allow credentials (cookies, authorization headers)
-}));
+app.use(cors());
 
 // Connect to MongoDB
 connectDB();
