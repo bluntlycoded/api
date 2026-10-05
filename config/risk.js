@@ -7,6 +7,7 @@ export const RISK_WEIGHTS = {
   impossibleTravel: 60,
   newCountry: 25,
   recentFailures: 20,
+  anonymizingIp: 15,
   oddHour: 15,
   newIp: 10,
 };
@@ -34,6 +35,9 @@ export const APPROVAL_TTL_SECONDS = 120;
 export const APPROVAL_MAX_WRONG_ATTEMPTS = 2;
 export const APPROVAL_MAX_PENDING = 3;
 export const APPROVAL_MAX_PER_HOUR = 5;
+
+// How long an IP reported as "not me" stays blocked.
+export const BLOCK_DAYS = 7;
 
 // Failed credentials within the failure window before logins are refused outright.
 export const LOCKOUT_FAILURES = 10;

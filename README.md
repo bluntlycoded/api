@@ -4,13 +4,14 @@ Backend for an authenticator app: stores TOTP secrets per user, generates codes,
 protects sign-in with device trust, per-login risk scoring, impossible-travel checks
 and number-matched approval.
 
-Node 20+, Express, MongoDB (Mongoose), Socket.IO.
+Node 20+, Express, Postgres on Supabase, Socket.IO.
 
 ## Setup
 
 ```bash
 npm install
-cp .env.example .env     # then fill in MONGO_URI, JWT_SECRET, ENCRYPTION_KEY
+cp .env.example .env     # fill in DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY
+npm run migrate          # creates the tables (supabase/migrations/*.sql)
 npm run dev              # or: npm start
 npm test
 ```
@@ -18,7 +19,12 @@ npm test
 Generate secrets with `openssl rand -hex 32`. Keep `ENCRYPTION_KEY` safe: authenticator
 secrets are encrypted with it (AES-256-GCM) and cannot be recovered without it.
 
-If you already have users with plaintext secrets, run `npm run migrate:encrypt` once.
+The server connects straight to Postgres, not through Supabase's REST API.
+`0002_lockdown.sql` turns on row level security with no policies and revokes the
+`anon` and `authenticated` roles, so the public Supabase keys can't read any table.
+On a plain Postgres without those roles, delete that file before running the migration.
+
+Tests run against an in-memory Postgres (pg-mem) with the real schema, so they need no database.
 
 ## How login works
 
@@ -60,10 +66,18 @@ Routes marked *trusted* also need a session from a trusted device.
 | `POST /api/auth/login/complete` *public* | Exchange an approved challenge for a token |
 | `POST /api/auth/forgot-password` *public* | Email a reset link (same reply for unknown emails) |
 | `POST /api/auth/reset-password` *public* | Set a new password with the emailed token |
-| `POST /api/addapp` | Save an authenticator entry (`appName`, base32 `secretKey`) |
-| `GET /api/addapp` | List saved entries |
-| `GET /api/addapp/:appId/otp` | Current code for an entry |
+| `POST /api/auth/passkey/options`, `POST /api/auth/passkey/verify` *public* | Sign in with a passkey (no password, no approval step) |
+| `POST /api/addapp` | Save an entry: `appName`, base32 `secretKey`, optional `issuer`, `account`, `type` (totp/hotp), `algorithm`, `digits`, `period`, `counter`, `folder`, `icon`, `favorite` |
+| `GET /api/addapp?q=&folder=&favorite=` | List or search entries |
+| `PATCH /api/addapp/:appId` | Rename, move to a folder, set icon or favorite |
+| `PUT /api/addapp/order` | `{ids: [...]}` sets the display order |
+| `GET /api/addapp/:appId/otp` | Current code (HOTP advances its counter) |
 | `DELETE /api/addapp/:appId` | Delete an entry |
+| `POST /api/addapp/import` | `{data}`: `otpauth://` URIs, a Google Authenticator export link, or an unencrypted Aegis export |
+| `POST /api/addapp/export` *trusted* | `{password}` returns `otpauth://` URIs |
+| `GET/PUT/DELETE /api/vault` | End-to-end encrypted backup blob (see below). Writes need a *trusted* device |
+| `GET /api/passkeys`, `POST /api/passkeys/options`, `POST /api/passkeys/verify`, `DELETE /api/passkeys/:id` *trusted* | Manage passkeys |
+| `POST /api/approval/:id/report` *trusted* | "This wasn't me": denies, blocks the IP for 7 days, locks the account until a password reset |
 | `POST /api/totp/setup` *trusted* | Start two-factor setup; returns secret and QR code |
 | `POST /api/totp/enable` *trusted* | Confirm with a code to switch it on |
 | `POST /api/totp/disable` *trusted* | Needs password and a current code |
@@ -82,6 +96,26 @@ Socket.IO: connect, then emit `authenticate {token}` (trusted device) or
 `watch {challengeId, pollSecret}` (login screen). Events: `approval_request`,
 `approval_resolved`, `approval_closed`.
 
+## Encrypted backup
+
+`/api/vault` stores one opaque blob per user. The app encrypts it on the device (for
+example with a key derived from a passphrase) and the server never sees the key or the
+contents. `PUT` sends `{ciphertext, version}` where `version` is the one last read
+(`0` for the first upload); a stale version gets `409` so devices can't overwrite each
+other. The app can use this for sync and restore without trusting the server.
+
+## Tuning the risk weights
+
+```bash
+npm run evaluate:risk -- --synthetic             # pipeline check only
+npm run evaluate:risk -- path/to/rba-dataset.csv # public login dataset (Wiefling et al.)
+```
+
+It replays logins through the real scorer and prints, for each challenge threshold, the
+share of legitimate logins challenged and attacker logins challenged, plus how often
+each signal fires. Adjust `config/risk.js` from that. VPN/proxy detection reads CIDR
+ranges from `IP_RANGES_FILE`.
+
 ## Limits
 
 - Not phishing-resistant like WebAuthn: a live relay site can pass the number to the
@@ -89,6 +123,10 @@ Socket.IO: connect, then emit `authenticate {token}` (trusted device) or
 - IP geolocation is approximate, and VPNs distort it. Location is a risk signal, not proof.
 - If a user loses every trusted device they cannot approve a new one, so account
   recovery needs a separate path.
+- Passkey login is verified against the WebAuthn library only; it has not been exercised
+  with a real authenticator yet. Passkey login skips the approval step by design.
+- Push notifications and device attestation (Play Integrity / App Attest) are not built;
+  both need Google or Apple credentials.
 - Behind a proxy, set `TRUST_PROXY` or every IP-based score is wrong.
 - Risk weights are hand-set and not tuned on data.
 

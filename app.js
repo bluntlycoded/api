@@ -10,6 +10,8 @@ import totpRoutes from './routes/totpRoutes.js';
 import approvalRoutes from './routes/approvalRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import securityRoutes from './routes/securityRoutes.js';
+import vaultRoutes from './routes/vaultRoutes.js';
+import passkeyRoutes from './routes/passkeyRoutes.js';
 import blockchainRoutes from './routes/blockchainRoutes.js';
 
 const createApp = () => {
@@ -21,6 +23,10 @@ const createApp = () => {
 
   app.use(helmet());
   app.use(cors({ origin: config.allowedOrigins.length ? config.allowedOrigins : true }));
+  // Bulk import and the encrypted vault are larger than ordinary requests. These
+  // parsers run first; the default one below skips bodies already parsed.
+  app.use('/api/addapp/import', express.json({ limit: '512kb' }));
+  app.use('/api/vault', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '10kb' }));
 
   app.get('/', (req, res) => res.send('Welcome to the Authenticator API!'));
@@ -33,6 +39,8 @@ const createApp = () => {
   app.use('/api/approval', approvalRoutes);
   app.use('/api/devices', deviceRoutes);
   app.use('/api/security', securityRoutes);
+  app.use('/api/vault', vaultRoutes);
+  app.use('/api/passkeys', passkeyRoutes);
   app.use('/api/blockchain', blockchainRoutes);
 
   app.use(notFound);

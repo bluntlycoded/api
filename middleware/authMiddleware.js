@@ -1,5 +1,5 @@
 import { verifyJwt } from '../services/authService.js';
-import Device from '../models/deviceModel.js';
+import { isTrusted } from '../repositories/deviceRepository.js';
 import { HttpError } from '../utils/httpError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -19,8 +19,7 @@ const verifyToken = (req, res, next) => {
 const requireTrustedDevice = asyncHandler(async (req, res, next) => {
   const { userId, did } = req.user;
   if (!did) throw new HttpError(403, 'This session is not bound to a device. Log in again.');
-  const trusted = await Device.exists({ userId, deviceHash: did, trusted: true });
-  if (!trusted) throw new HttpError(403, 'This device is not trusted.');
+  if (!(await isTrusted(userId, did))) throw new HttpError(403, 'This device is not trusted.');
   next();
 });
 

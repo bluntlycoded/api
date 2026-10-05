@@ -1,4 +1,4 @@
-import User from '../models/userModel.js';
+import * as users from '../repositories/userRepository.js';
 import { hashPassword } from './authService.js';
 import { sendPasswordReset } from './mailService.js';
 import { audit } from './auditService.js';
@@ -8,15 +8,12 @@ import { HttpError } from '../utils/httpError.js';
 const RESET_TTL_MINUTES = 15;
 
 const requestPasswordReset = async (email, ip) => {
-  const user = await User.findOne({ email }).select('_id');
+  const user = await users.findByEmail(email);
   if (!user) return;
 
   const token = randomToken();
-  await User.updateOne(
-    { _id: user._id },
-    { $set: { resetTokenHash: sha256(token), resetTokenExpires: new Date(Date.now() + RESET_TTL_MINUTES * 60000) } }
-  );
-  await audit(user._id, 'password_reset_requested', ip);
+  await users.setResetToken(user.id, sha256(token), new Date(Date.now() + RESET_TTL_MINUTES * 60000));
+  await audit(user.id, 'password_reset_requested', ip);
   try {
     await sendPasswordReset(email, token);
   } catch (err) {
@@ -27,15 +24,9 @@ const requestPasswordReset = async (email, ip) => {
 
 // Reset does not trust the device: a new device still needs approval to log in.
 const resetPassword = async (token, newPassword, ip) => {
-  const user = await User.findOneAndUpdate(
-    { resetTokenHash: sha256(token), resetTokenExpires: { $gt: new Date() } },
-    {
-      $set: { password: await hashPassword(newPassword) },
-      $unset: { resetTokenHash: '', resetTokenExpires: '' },
-    }
-  );
+  const user = await users.resetPasswordByToken(sha256(token), await hashPassword(newPassword));
   if (!user) throw new HttpError(400, 'Reset link is invalid or has expired');
-  await audit(user._id, 'password_reset', ip);
+  await audit(user.id, 'password_reset', ip);
 };
 
 export { requestPasswordReset, resetPassword };

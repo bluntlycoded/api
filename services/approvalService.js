@@ -21,7 +21,7 @@ const createNumberChallenge = () => {
 
 // What the approver sees. `number` is deliberately absent.
 const toApproverView = (a) => ({
-  id: a._id,
+  id: a.id,
   requestedAt: a.createdAt,
   expiresAt: a.expiresAt,
   site: a.site || null,
