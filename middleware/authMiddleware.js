@@ -1,28 +1,28 @@
-// backend/src/middleware/authMiddleware.js
-
-import jwt from 'jsonwebtoken';
+import { verifyJwt } from '../services/authService.js';
+import Device from '../models/deviceModel.js';
+import { HttpError } from '../utils/httpError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 const verifyToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Extract token after 'Bearer '
-
-  console.log('Authorization Header:', authHeader); // Log the Authorization header
-  console.log('Extracted Token:', token); // Log the extracted token
-
-  if (!token) {
-    console.warn('No token provided in request headers.');
-    return res.status(401).json({ message: 'No token provided. Authorization denied.' });
-  }
-
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) throw new HttpError(401, 'No token provided. Authorization denied.');
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('Decoded Token:', decoded); // Log the decoded token
-    req.user = decoded; // Attach decoded token to req.user
-    next();
-  } catch (err) {
-    console.error('Token verification failed:', err.message);
-    return res.status(403).json({ message: 'Invalid or expired token. Authorization denied.' });
+    req.user = verifyJwt(token);
+  } catch {
+    throw new HttpError(403, 'Invalid or expired token. Authorization denied.');
   }
+  next();
 };
 
+// Must run after verifyToken. Only a session from a trusted device (the `did`
+// claim is that device's hash) may approve logins or manage security settings.
+const requireTrustedDevice = asyncHandler(async (req, res, next) => {
+  const { userId, did } = req.user;
+  if (!did) throw new HttpError(403, 'This session is not bound to a device. Log in again.');
+  const trusted = await Device.exists({ userId, deviceHash: did, trusted: true });
+  if (!trusted) throw new HttpError(403, 'This device is not trusted.');
+  next();
+});
+
+export { requireTrustedDevice };
 export default verifyToken;

@@ -1,40 +1,28 @@
-// backend/server.js
+import http from 'http';
+import mongoose from 'mongoose';
+import { config } from './config/env.js';
+import connectDB from './config/database.js';
+import createApp from './app.js';
+import { initRealtime } from './services/realtime.js';
 
-import express from 'express';
-import dotenv from 'dotenv';
-import connectDB from './config/database.js';  // MongoDB connection function
-import authRoutes from './routes/authRoutes.js';  // Authentication routes (sign-up, login)
-import blockchainRoutes from './routes/blockchainRoutes.js';  // Blockchain routes (Solana)
-import totpRoutes from './routes/totpRoutes.js';
-import appRoutes from './routes/appRoutes.js';  // Add App routes
-import cors from 'cors';
+const start = async () => {
+  await connectDB();
 
-dotenv.config();  // Load environment variables from .env file
+  const server = http.createServer(createApp());
+  initRealtime(server);
+  server.listen(config.port, () => console.log(`Server is running on port ${config.port}`));
 
-const app = express();
+  const shutdown = () => {
+    server.close(async () => {
+      await mongoose.disconnect();
+      process.exit(0);
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+};
 
-
-app.use(cors());
-
-// Connect to MongoDB
-connectDB();
-
-// Middleware to parse JSON bodies for incoming requests
-app.use(express.json());  // Parse JSON in incoming requests
-
-// Define API routes
-app.use('/api/auth', authRoutes);  // Authentication routes (sign-up, login, etc.)
-app.use('/api/blockchain', blockchainRoutes);  // Blockchain routes (Solana, etc.)
-app.use('/api/totp', totpRoutes);
-app.use('/api/addapp', appRoutes);  // Add App routes
-
-// Default route (optional)
-app.get('/', (req, res) => {
-  res.send('Welcome to the Authenticator API!');
-});
-
-// Start the server on the specified port
-const PORT = process.env.PORT || 2700;  // Use PORT from .env or default to 2700
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+start().catch((err) => {
+  console.error('Failed to start:', err.message);
+  process.exit(1);
 });

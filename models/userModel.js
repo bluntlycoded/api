@@ -1,44 +1,33 @@
-// backend/src/models/User.js
-
 import mongoose from 'mongoose';
+import { encrypt, decrypt } from '../utils/crypto.js';
 
-// Define the schema for the User model
-const userSchema = new mongoose.Schema(
+// Secrets are encrypted at rest and decrypted on read.
+const encrypted = { set: encrypt, get: decrypt };
+
+const appSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    password: {
-      type: String,
-      required: true,
-    },
-    apps: [
-      {
-        appName: { 
-          type: String, 
-          required: true 
-        },  // Name of the app (e.g., GitHub, Google)
-        secretKey: { 
-          type: String, 
-          required: true 
-        },  // Secret key for the app used to generate TOTP
-      },
-    ],
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
+    appName: { type: String, required: true, trim: true, maxlength: 100 },
+    secretKey: { type: String, required: true, ...encrypted },
   },
-  { timestamps: true }  // Automatically adds createdAt and updatedAt fields
+  { id: false, toJSON: { getters: true } }
 );
 
-// Create the User model from the schema
-const User = mongoose.model('User', userSchema);
+const userSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 100 },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { type: String, required: true, select: false },
+    apps: [appSchema],
 
-export default User;
+    totpEnabled: { type: Boolean, default: false },
+    totpSecret: { type: String, select: false, ...encrypted },
+    // Last accepted 30s time step, so a code cannot be used twice.
+    totpLastStep: { type: Number, default: 0, select: false },
+
+    resetTokenHash: { type: String, select: false },
+    resetTokenExpires: { type: Date, select: false },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.model('User', userSchema);
