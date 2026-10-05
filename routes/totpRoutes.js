@@ -1,14 +1,15 @@
-// backend/src/routes/totpRoutes.js
-
 import express from 'express';
-import { generateTOTPSecret, verifyTOTP } from '../controllers/totpController.js';
+import { setupTotp, enableTotp, disableTotp } from '../controllers/totpController.js';
+import verifyToken, { requireTrustedDevice } from '../middleware/authMiddleware.js';
+import { credentialLimiter } from '../middleware/rateLimit.js';
+import { totpCodeRules, totpDisableRules } from '../middleware/validate.js';
 
 const router = express.Router();
 
-// Route to generate TOTP secret and QR code
-router.get('/generate', generateTOTPSecret);
+router.use(verifyToken, requireTrustedDevice, credentialLimiter);
 
-// Route to verify OTP
-router.post('/verify', verifyTOTP);
+router.post('/setup', setupTotp);
+router.post('/enable', totpCodeRules, enableTotp);
+router.post('/disable', totpDisableRules, disableTotp);
 
 export default router;

@@ -1,25 +1,53 @@
 import dotenv from 'dotenv';
+
 dotenv.config();
 
-// MongoDB Configuration
-const mongoConfig = {
-  URI: process.env.MONGO_URI,
+const required = (name) => {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required (see .env.example)`);
+  return value;
 };
 
-// Solana Configuration
-const solanaConfig = {
-  rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-  privateKey: process.env.SOLANA_PRIVATE_KEY,
+const encryptionKey = () => {
+  const hex = required('ENCRYPTION_KEY');
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error('ENCRYPTION_KEY must be 64 hex characters (32 bytes)');
+  }
+  return Buffer.from(hex, 'hex');
 };
 
-// JWT Configuration
-const jwtConfig = {
-  secretKey: process.env.JWT_SECRET || 'your-jwt-secret-key',
+const list = (value) =>
+  (value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const trustProxy = () => {
+  const value = process.env.TRUST_PROXY;
+  if (!value) return false;
+  if (value === 'true') return true;
+  return Number.isNaN(Number(value)) ? value : Number(value);
 };
 
-// TOTP Configuration (using otplib)
-const totpConfig = {
-  secret: process.env.TOTP_SECRET || 'your-totp-secret-key', // Ensure you store this securely
+export const config = {
+  env: process.env.NODE_ENV || 'development',
+  port: Number(process.env.PORT) || 2700,
+  trustProxy: trustProxy(),
+  mongoUri: process.env.MONGO_URI,
+  jwtSecret: required('JWT_SECRET'),
+  jwtExpiresIn: '1h',
+  encryptionKey: encryptionKey(),
+  // Origins allowed to call the API. Empty means any origin (CORS) and
+  // disables the unrecognized-origin risk signal.
+  allowedOrigins: list(process.env.ALLOWED_ORIGINS),
+  totpIssuer: process.env.TOTP_ISSUER || 'FraudShield Authenticator',
+  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+  passwordResetUrl: process.env.PASSWORD_RESET_URL,
+  smtp: {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT) || 587,
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+    from: process.env.SMTP_FROM,
+  },
 };
-
-export { mongoConfig, solanaConfig, jwtConfig, totpConfig };

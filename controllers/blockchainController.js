@@ -1,26 +1,22 @@
-import { createSolanaWallet, connection } from '../config/blockchain.js';
 import { PublicKey } from '@solana/web3.js';
+import { connection, createSolanaWallet } from '../config/blockchain.js';
+import { HttpError } from '../utils/httpError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
-// Create new Solana wallet
-const createWallet = (req, res) => {
+const LAMPORTS_PER_SOL = 1e9;
+
+// The private key is returned once and never stored.
+const createWallet = (req, res) => res.status(200).json(createSolanaWallet());
+
+const checkBalance = asyncHandler(async (req, res) => {
+  let publicKey;
   try {
-    const { publicKey, privateKey } = createSolanaWallet();
-    res.status(200).json({ publicKey, privateKey });
-  } catch (error) {
-    res.status(500).json({ message: 'Error creating wallet' });
+    publicKey = new PublicKey(req.body.publicKey);
+  } catch {
+    throw new HttpError(400, 'Invalid public key');
   }
-};
-
-// Check Solana wallet balance
-const checkBalance = async (req, res) => {
-  const { publicKey } = req.body;
-
-  try {
-    const balance = await connection.getBalance(new PublicKey(publicKey));
-    res.status(200).json({ balance: balance / 1000000000 }); // Convert to SOL (1 SOL = 10^9 lamports)
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching balance' });
-  }
-};
+  const lamports = await connection.getBalance(publicKey);
+  res.status(200).json({ balance: lamports / LAMPORTS_PER_SOL });
+});
 
 export { createWallet, checkBalance };

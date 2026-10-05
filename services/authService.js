@@ -1,30 +1,19 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { jwtConfig } from '../config/env.js';
+import { config } from '../config/env.js';
 
-// Hash password
-const hashPassword = async (password) => {
-  const salt = await bcrypt.genSalt(10);
-  return bcrypt.hash(password, salt);
-};
+const BCRYPT_ROUNDS = 10;
+// Compared against when the email is unknown, so timing doesn't reveal it.
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', BCRYPT_ROUNDS);
 
-// Verify password
-const verifyPassword = async (password, hashedPassword) => {
-  return bcrypt.compare(password, hashedPassword);
-};
+const hashPassword = (password) => bcrypt.hash(password, BCRYPT_ROUNDS);
 
-// Generate JWT token
-const generateJWTToken = (userId) => {
-  return jwt.sign({ userId }, jwtConfig.secretKey, { expiresIn: '1h' });
-};
+const verifyPassword = (password, hash) => bcrypt.compare(password, hash || DUMMY_HASH);
 
-// Verify JWT token
-const verifyJWTToken = (token) => {
-  try {
-    return jwt.verify(token, jwtConfig.secretKey);
-  } catch (error) {
-    return null;
-  }
-};
+// `did` binds the session to a device so only trusted devices can approve logins.
+const signToken = (userId, deviceHash) =>
+  jwt.sign({ userId, did: deviceHash }, config.jwtSecret, { expiresIn: config.jwtExpiresIn });
 
-export { hashPassword, verifyPassword, generateJWTToken, verifyJWTToken };
+const verifyJwt = (token) => jwt.verify(token, config.jwtSecret);
+
+export { hashPassword, verifyPassword, signToken, verifyJwt };

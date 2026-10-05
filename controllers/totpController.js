@@ -1,62 +1,50 @@
-// backend/src/controllers/totpController.js
+import User from '../models/userModel.js';
+import { buildSetup, generateSecret, verifyCode } from '../services/totpService.js';
+import { verifyPassword } from '../services/authService.js';
+import { audit } from '../services/auditService.js';
+import { HttpError } from '../utils/httpError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
-import speakeasy from 'speakeasy';
-import QRCode from 'qrcode';
-import User from '../models/userModel.js';  // Assuming you have a User model to store user data
+// Step 1: create a secret (not active yet) and return it with a QR code.
+const setupTotp = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.userId).select('email totpEnabled');
+  if (!user) throw new HttpError(404, 'User not found');
+  if (user.totpEnabled) throw new HttpError(409, 'Two-factor authentication is already enabled');
 
-// Generate TOTP secret for the user
-export const generateTOTPSecret = async (req, res) => {
-  const userId = req.user.id;  // Assuming user is authenticated and user ID is available
-  const user = await User.findById(userId);  // Get user from DB
+  const secret = generateSecret();
+  await User.updateOne({ _id: user._id }, { $set: { totpSecret: secret, totpLastStep: 0 } });
+  res.status(200).json(await buildSetup(user.email, secret));
+});
 
-  if (!user) {
-    return res.status(400).json({ message: 'User not found' });
-  }
+// Step 2: prove the authenticator app works, then switch it on.
+const enableTotp = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.userId).select('+totpSecret +totpLastStep totpEnabled');
+  if (!user?.totpSecret) throw new HttpError(400, 'Start setup first');
+  if (user.totpEnabled) throw new HttpError(409, 'Two-factor authentication is already enabled');
 
-  // Generate a new TOTP secret
-  const secret = speakeasy.generateSecret({ length: 20 });
+  const step = verifyCode(req.body.token, user.totpSecret);
+  if (step === null) throw new HttpError(400, 'Invalid code');
 
-  // Save the secret key for the user in the database
-  user.totpSecret = secret.base32;
-  await user.save();
+  await User.updateOne({ _id: user._id }, { $set: { totpEnabled: true, totpLastStep: step } });
+  await audit(user._id, 'totp_enabled', req.ip);
+  res.status(200).json({ message: 'Two-factor authentication enabled' });
+});
 
-  // Generate the QR code URI (used by Authenticator app to scan)
-  const otpauthUrl = speakeasy.otpauth.URL({
-    label: user.email,  // User's email as the label for the QR code
-    secret: secret.base32,
-    issuer: 'MyApp',  // App name for display in the authenticator
-  });
+// Needs both the password and a current code.
+const disableTotp = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user.userId).select('+password +totpSecret +totpLastStep totpEnabled');
+  if (!user?.totpEnabled) throw new HttpError(400, 'Two-factor authentication is not enabled');
 
-  // Generate the QR code URL for the frontend to display
-  QRCode.toDataURL(otpauthUrl, function (err, data_url) {
-    if (err) {
-      return res.status(500).json({ message: 'Error generating QR code' });
-    }
-    return res.json({ qrCodeUrl: data_url, secret: secret.base32 });
-  });
-};
+  const passwordOk = await verifyPassword(req.body.password, user.password);
+  const step = verifyCode(req.body.token, user.totpSecret, user.totpLastStep);
+  if (!passwordOk || step === null) throw new HttpError(400, 'Invalid password or code');
 
-// Verify TOTP token
-export const verifyTOTP = async (req, res) => {
-  const { token } = req.body;  // OTP entered by the user
-  const userId = req.user.id;
+  await User.updateOne(
+    { _id: user._id },
+    { $set: { totpEnabled: false, totpLastStep: 0 }, $unset: { totpSecret: '' } }
+  );
+  await audit(user._id, 'totp_disabled', req.ip);
+  res.status(200).json({ message: 'Two-factor authentication disabled' });
+});
 
-  // Get the user's secret from the DB
-  const user = await User.findById(userId);
-  if (!user || !user.totpSecret) {
-    return res.status(400).json({ message: 'TOTP secret not found' });
-  }
-
-  // Verify the OTP using speakeasy
-  const isValid = speakeasy.totp.verify({
-    secret: user.totpSecret,
-    encoding: 'base32',
-    token: token,
-  });
-
-  if (isValid) {
-    return res.status(200).json({ message: 'OTP is valid' });
-  } else {
-    return res.status(400).json({ message: 'Invalid OTP' });
-  }
-};
+export { setupTotp, enableTotp, disableTotp };
