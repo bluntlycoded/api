@@ -1,3 +1,5 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -15,6 +17,8 @@ import vaultRoutes from './routes/vaultRoutes.js';
 import passkeyRoutes from './routes/passkeyRoutes.js';
 import blockchainRoutes from './routes/blockchainRoutes.js';
 
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
+
 const createApp = () => {
   const app = express();
 
@@ -30,7 +34,9 @@ const createApp = () => {
   app.use('/api/vault', express.json({ limit: '1mb' }));
   app.use(express.json({ limit: '10kb' }));
 
-  app.get('/', (req, res) => res.send('Welcome to the Authenticator API!'));
+  // Web client for the login and approval screens.
+  app.use('/app', express.static(publicDir));
+  app.get('/', (req, res) => res.redirect('/app/'));
   app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
   app.use('/api', apiLimiter);

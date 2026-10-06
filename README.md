@@ -24,6 +24,23 @@ The server connects straight to Postgres, not through Supabase's REST API.
 `anon` and `authenticated` roles, so the public Supabase keys can't read any table.
 On a plain Postgres without those roles, delete that file before running the migration.
 
+## Try the web client
+
+```bash
+npm run dev:memory       # whole app on an in-memory database, no Supabase or .env needed
+```
+
+Open http://localhost:2700/app/ and register. To play a second device, open another tab with
+`?profile=laptop` (any name): each profile keeps its own device identity and session. Log in as
+the same user there, and the first tab receives the approval prompt live. Everything is lost
+when the server stops. Against a real database the same client is served at `/app/`.
+
+The client is plain HTML and ES modules in `public/` with no build step. It builds the page
+with text nodes only, because the approval screen shows text an attacker controls (the site
+and device name); a test fails if `innerHTML` or similar appears. It keeps the refresh token in
+`localStorage`, which is fine for a demo but means any script injected into the page could read
+it; a production web app should use an httpOnly cookie instead.
+
 Tests run against an in-memory Postgres (pg-mem) with the real schema, so they need no database.
 
 ## How login works
@@ -64,6 +81,10 @@ Routes marked *trusted* also need a session from a trusted device.
 | `POST /api/auth/register` *public* | Create account; registering device becomes trusted |
 | `POST /api/auth/login` *public* | Log in (see above) |
 | `POST /api/auth/login/complete` *public* | Exchange an approved challenge for a token |
+| `POST /api/auth/refresh` *public* | Trade a refresh token for a new access token and refresh token (each works once) |
+| `POST /api/auth/logout` *public*, `POST /api/auth/logout-all` | End this login, or every login on every device |
+| `POST /api/auth/recover` *public* | Lost every device: password plus a recovery code starts a session on this device |
+| `GET /api/recovery`, `POST /api/recovery` *trusted* | Count of unused recovery codes; generate ten new ones (needs the password) |
 | `POST /api/auth/forgot-password` *public* | Email a reset link (same reply for unknown emails) |
 | `POST /api/auth/reset-password` *public* | Set a new password with the emailed token |
 | `POST /api/auth/passkey/options`, `POST /api/auth/passkey/verify` *public* | Sign in with a passkey (no password, no approval step) |
@@ -95,6 +116,20 @@ Routes marked *trusted* also need a session from a trusted device.
 Socket.IO: connect, then emit `authenticate {token}` (trusted device) or
 `watch {challengeId, pollSecret}` (login screen). Events: `approval_request`,
 `approval_resolved`, `approval_closed`.
+
+## Sessions and recovery
+
+Access tokens last 15 minutes. Every login also returns a refresh token (30 days, and at most
+90 days from the original login). Refresh tokens rotate: using one returns a new one and
+retires the old. Presenting an already-used token means it was copied, so that whole login
+is ended and the event is audited. Removing a device, resetting the password, "this wasn't
+me", logout-all and account recovery all end the affected refresh tokens; an access token
+already issued still works until it expires (up to 15 minutes).
+
+Recovery codes are ten single-use codes (60 bits each) stored only as hashes and shown once.
+Recovering from a new device needs the password and one code, makes that device the only
+trusted one, ends every other session and emails a notice. A locked account cannot recover;
+it needs a password reset.
 
 ## Encrypted backup
 

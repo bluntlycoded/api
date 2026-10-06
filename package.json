@@ -13,7 +13,8 @@
     "dev": "node --watch server.js",
     "test": "node --import ./tests/setup.js --test tests/*.test.js",
     "migrate": "node scripts/migrate.js",
-    "evaluate:risk": "node --import ./tests/setup.js scripts/evaluate-risk.js"
+    "evaluate:risk": "node --import ./tests/setup.js scripts/evaluate-risk.js",
+    "dev:memory": "node scripts/dev-memory.js"
   },
   "dependencies": {
     "@simplewebauthn/server": "^14.0.3",

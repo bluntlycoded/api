@@ -79,3 +79,29 @@ test('oversized bodies are refused', async () => {
   const res = await post('/api/auth/login', { email: 'a@example.com', password: 'x'.repeat(20000), deviceId });
   assert.equal(res.status, 413);
 });
+
+test('web client is served and the root redirects to it', async () => {
+  const root = await fetch(`${base}/`, { redirect: 'manual' });
+  assert.equal(root.status, 302);
+  assert.equal(root.headers.get('location'), '/app/');
+
+  const page = await fetch(`${base}/app/`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /FraudShield Authenticator/);
+  assert.ok(!/<script(?![^>]*src=)/.test(html), 'no inline scripts: the CSP forbids them');
+  assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
+
+  for (const file of ['app.css', 'js/main.js', 'js/auth.js', 'js/approvals.js', 'js/api.js']) {
+    assert.equal((await fetch(`${base}/app/${file}`)).status, 200, file);
+  }
+});
+
+test('the client never builds markup from strings', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const dir = new URL('../public/js/', import.meta.url);
+  for (const file of readdirSync(dir)) {
+    const source = readFileSync(new URL(file, dir), 'utf8');
+    assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(/.test(source), `${file} uses unsafe HTML APIs`);
+  }
+});
