@@ -1,14 +1,35 @@
 import express from 'express';
-import { addApp, getApps, deleteApp, generateOtp } from '../controllers/appController.js';
-import verifyToken from '../middleware/authMiddleware.js';
-import { addAppRules, appIdRules } from '../middleware/validate.js';
+import {
+  addApp,
+  getApps,
+  updateApp,
+  deleteApp,
+  generateOtp,
+  reorderApps,
+  importApps,
+  exportApps,
+} from '../controllers/appController.js';
+import verifyToken, { requireTrustedDevice } from '../middleware/authMiddleware.js';
+import {
+  addAppRules,
+  updateAppRules,
+  listAppRules,
+  appIdRules,
+  reorderRules,
+  importRules,
+  exportRules,
+} from '../middleware/validate.js';
 
 const router = express.Router();
 
 router.use(verifyToken);
 
 router.post('/', addAppRules, addApp);
-router.get('/', getApps);
+router.get('/', listAppRules, getApps);
+router.put('/order', reorderRules, reorderApps);
+router.post('/import', importRules, importApps);
+router.post('/export', requireTrustedDevice, exportRules, exportApps);
+router.patch('/:appId', updateAppRules, updateApp);
 router.delete('/:appId', appIdRules, deleteApp);
 router.get('/:appId/otp', appIdRules, generateOtp);
 

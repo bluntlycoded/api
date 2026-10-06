@@ -28,6 +28,7 @@ const travelBetween = (previous, current, now) => {
  * @param {object|null} p.geo           {country, lat, lon, ...} or null if unknown
  * @param {number|null} p.localHour     current hour in the IP's time zone, or null
  * @param {boolean} p.originUnrecognized request Origin is set and not allow-listed
+ * @param {boolean} p.anonymizingIp     IP is in a known VPN/proxy/datacentre range
  * @param {number}  p.recentFailures    failed password attempts in the recent window
  * @param {Array}   p.history           past successful logins, newest first:
  *                                      {ip, geo, localHour, at}
@@ -40,6 +41,7 @@ const scoreLogin = ({
   geo,
   localHour,
   originUnrecognized = false,
+  anonymizingIp = false,
   recentFailures = 0,
   history,
 }) => {
@@ -53,6 +55,8 @@ const scoreLogin = ({
 
   if (!deviceTrusted) add('newDevice', 'Sign-in from a device that is not trusted');
   if (originUnrecognized) add('unrecognizedOrigin', 'Request came from an unrecognized website');
+
+  if (anonymizingIp) add('anonymizingIp', 'Connection comes from a VPN, proxy or datacentre address');
 
   if (!history.some((h) => h.ip === ip)) add('newIp', 'IP address not seen in recent logins');
 

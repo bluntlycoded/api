@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { config } from '../config/env.js';
 
 const limiter = (windowMinutes, limit, message) =>
   rateLimit({
@@ -6,6 +7,7 @@ const limiter = (windowMinutes, limit, message) =>
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    skip: () => config.rateLimitDisabled,
     message: { message },
   });
 

@@ -1,11 +1,12 @@
 import { Server } from 'socket.io';
 import { config } from '../config/env.js';
-import Approval from '../models/approvalModel.js';
-import Device from '../models/deviceModel.js';
+import * as approvals from '../repositories/approvalRepository.js';
+import * as devices from '../repositories/deviceRepository.js';
 import { sha256, safeEqualHex } from '../utils/crypto.js';
 import { verifyJwt } from './authService.js';
 
 const AUTH_TIMEOUT_MS = 15000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let io = null;
 
 /**
@@ -27,7 +28,7 @@ const initRealtime = (httpServer) => {
     socket.on('authenticate', async ({ token } = {}, ack = () => {}) => {
       try {
         const { userId, did } = verifyJwt(token);
-        const trusted = did && (await Device.exists({ userId, deviceHash: did, trusted: true }));
+        const trusted = did && (await devices.isTrusted(userId, did));
         if (!trusted) return ack({ ok: false });
         socket.join(`user:${userId}`);
         identified();
@@ -39,7 +40,7 @@ const initRealtime = (httpServer) => {
 
     socket.on('watch', async ({ challengeId, pollSecret } = {}, ack = () => {}) => {
       try {
-        const approval = await Approval.findById(challengeId).select('pollSecretHash status').lean();
+        const approval = UUID.test(challengeId) ? await approvals.findById(challengeId) : null;
         if (!approval || typeof pollSecret !== 'string' || !safeEqualHex(approval.pollSecretHash, sha256(pollSecret))) {
           return ack({ ok: false });
         }

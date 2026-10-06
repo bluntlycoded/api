@@ -1,13 +1,12 @@
-import LoginEvent from '../models/loginEventModel.js';
-import AuditEvent from '../models/auditEventModel.js';
+import * as events from '../repositories/eventRepository.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const RECENT = 50;
 
 const recentLogins = asyncHandler(async (req, res) => {
-  const events = await LoginEvent.find({ userId: req.user.userId }).sort({ at: -1 }).limit(RECENT).lean();
+  const rows = await events.recentLogins(req.user.userId, RECENT);
   res.status(200).json(
-    events.map((e) => ({
+    rows.map((e) => ({
       at: e.at,
       outcome: e.outcome,
       ip: e.ip,
@@ -19,12 +18,7 @@ const recentLogins = asyncHandler(async (req, res) => {
 });
 
 const auditLog = asyncHandler(async (req, res) => {
-  const events = await AuditEvent.find({ userId: req.user.userId })
-    .sort({ at: -1 })
-    .limit(RECENT)
-    .select('type ip details at -_id')
-    .lean();
-  res.status(200).json(events);
+  res.status(200).json(await events.recentAudit(req.user.userId, RECENT));
 });
 
 export { recentLogins, auditLog };
