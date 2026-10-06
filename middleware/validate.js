@@ -146,3 +146,13 @@ export const passkeyLoginRules = validate(
 );
 
 export const reportRules = validate(uuidParam('id'));
+
+export const refreshRules = validate(hexToken(body, 'refreshToken'));
+
+export const recoverRules = validate(
+  email,
+  body('password', 'Password is required').isString().notEmpty(),
+  body('recoveryCode', 'Recovery code is required').isString().isLength({ min: 12, max: 20 }),
+  deviceId,
+  deviceName
+);

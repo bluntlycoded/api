@@ -19,6 +19,10 @@ const isTrusted = async (userId, deviceHash) =>
 const list = (userId) =>
   many('select id, device_hash, name, trusted, first_seen, last_seen, last_ip from devices where user_id = $1 order by last_seen desc', [userId]);
 
-const remove = (userId, id) => one('delete from devices where id = $1 and user_id = $2 returning name', [id, userId]);
+const remove = (userId, id) => one('delete from devices where id = $1 and user_id = $2 returning name, device_hash', [id, userId]);
 
-export { find, upsert, isTrusted, list, remove };
+// After account recovery only the recovering device stays trusted.
+const untrustOthers = (userId, deviceHash) =>
+  query('update devices set trusted = false where user_id = $1 and device_hash <> $2', [userId, deviceHash]);
+
+export { find, upsert, isTrusted, list, remove, untrustOthers };

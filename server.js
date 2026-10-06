@@ -5,6 +5,7 @@ import createApp from './app.js';
 import { initRealtime } from './services/realtime.js';
 import * as approvals from './repositories/approvalRepository.js';
 import * as challenges from './repositories/challengeRepository.js';
+import * as refreshTokens from './repositories/refreshTokenRepository.js';
 import * as blockedIps from './repositories/blockedIpRepository.js';
 
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
@@ -16,6 +17,7 @@ const cleanup = () =>
     approvals.purgeOlderThan(new Date(Date.now() - DAY_MS)),
     challenges.purgeExpired(),
     blockedIps.purgeExpired(),
+    refreshTokens.purgeExpired(new Date(Date.now() - DAY_MS)),
   ]).catch((err) => console.error('Cleanup failed:', err.message));
 
 const start = async () => {

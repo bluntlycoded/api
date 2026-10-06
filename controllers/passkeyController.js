@@ -143,14 +143,14 @@ const loginVerify = asyncHandler(async (req, res) => {
     throw new HttpError(423, 'This account is locked. Reset your password to unlock it.', { code: 'ACCOUNT_LOCKED' });
   }
 
-  const token = await completeLogin(user, {
+  const session = await completeLogin(user, {
     deviceHash: sha256(deviceId),
     deviceName,
     trust: false,
     ctx,
     risk: { score: 0, signals: [{ id: 'passkey', points: 0, detail: 'Signed in with a passkey' }] },
   });
-  res.status(200).json({ token });
+  res.status(200).json(session);
 });
 
 export {

@@ -30,7 +30,7 @@ const registerUser = asyncHandler(async (req, res) => {
   if (await users.emailExists(email)) throw new HttpError(400, 'User already exists');
 
   const user = await users.create({ name, email, passwordHash: await hashPassword(password) });
-  const token = await completeLogin(user, {
+  const session = await completeLogin(user, {
     deviceHash: sha256(deviceId),
     deviceName,
     trust: true,
@@ -38,7 +38,7 @@ const registerUser = asyncHandler(async (req, res) => {
     risk: { score: 0, signals: [] },
   });
 
-  res.status(201).json({ token });
+  res.status(201).json(session);
 });
 
 // Low-risk logins get a token. Risky ones get a challenge that a trusted device
@@ -79,8 +79,8 @@ const loginUser = asyncHandler(async (req, res) => {
   const { risk } = await assessLogin(user, deviceId, ctx, recentFailures);
 
   if (!risk.requiresApproval) {
-    const token = await completeLogin(user, { deviceHash, deviceName, trust: Boolean(risk.baseline), ctx, risk });
-    return res.status(200).json({ token, riskScore: risk.score });
+    const session = await completeLogin(user, { deviceHash, deviceName, trust: Boolean(risk.baseline), ctx, risk });
+    return res.status(200).json({ ...session, riskScore: risk.score });
   }
 
   // Limit challenges so an attacker holding the password cannot spam the user.
@@ -136,14 +136,14 @@ const completeApprovedLogin = asyncHandler(async (req, res) => {
   const user = await users.findById(approval.userId);
   if (!user) throw new HttpError(404, 'User not found');
 
-  const token = await completeLogin(user, {
+  const session = await completeLogin(user, {
     deviceHash: approval.requestDeviceHash,
     deviceName: approval.requestDeviceName,
     trust: approval.trustDevice,
     ctx: requestContext(req),
     risk: { score: approval.riskScore, signals: approval.signals },
   });
-  res.status(200).json({ token });
+  res.status(200).json(session);
 });
 
 // Always answers the same way so it cannot be used to find registered emails.

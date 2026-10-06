@@ -2,6 +2,7 @@ import * as users from '../repositories/userRepository.js';
 import { hashPassword } from './authService.js';
 import { sendPasswordReset } from './mailService.js';
 import { audit } from './auditService.js';
+import { revokeForUser } from '../repositories/refreshTokenRepository.js';
 import { sha256, randomToken } from '../utils/crypto.js';
 import { HttpError } from '../utils/httpError.js';
 
@@ -26,6 +27,7 @@ const requestPasswordReset = async (email, ip) => {
 const resetPassword = async (token, newPassword, ip) => {
   const user = await users.resetPasswordByToken(sha256(token), await hashPassword(newPassword));
   if (!user) throw new HttpError(400, 'Reset link is invalid or has expired');
+  await revokeForUser(user.id);
   await audit(user.id, 'password_reset', ip);
 };
 

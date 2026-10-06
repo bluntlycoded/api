@@ -440,3 +440,132 @@ test('realtime: trusted device is pushed the request, login screen is told the r
     screen.close();
   }
 });
+
+const registerFull = async () => {
+  const email = `user${++counter}@example.com`;
+  const res = await call('POST', '/api/auth/register', {
+    body: { name: 'Test', email, password: PASSWORD, deviceId: DEVICE_A, deviceName: 'Phone A' },
+  });
+  return { email, ...res.body };
+};
+
+test('sessions: access token is short-lived and refresh tokens rotate', async () => {
+  const first = await registerFull();
+  assert.equal(first.expiresInSeconds, 900);
+  assert.match(first.refreshToken, /^[0-9a-f]{64}$/);
+
+  const second = await call('POST', '/api/auth/refresh', { body: { refreshToken: first.refreshToken } });
+  assert.equal(second.status, 200);
+  assert.notEqual(second.body.refreshToken, first.refreshToken);
+  assert.equal((await call('GET', '/api/devices', { token: second.body.token })).status, 200);
+
+  const third = await call('POST', '/api/auth/refresh', { body: { refreshToken: second.body.refreshToken } });
+  assert.equal(third.status, 200);
+});
+
+test('sessions: reusing a refresh token revokes the whole family', async () => {
+  const { email, refreshToken } = await registerFull();
+  const rotated = await call('POST', '/api/auth/refresh', { body: { refreshToken } });
+  assert.equal(rotated.status, 200);
+
+  const replay = await call('POST', '/api/auth/refresh', { body: { refreshToken } });
+  assert.equal(replay.status, 401);
+  assert.equal(replay.body.code, 'REFRESH_INVALID');
+
+  const afterTheft = await call('POST', '/api/auth/refresh', { body: { refreshToken: rotated.body.refreshToken } });
+  assert.equal(afterTheft.status, 401, 'the rotated token died with its family');
+
+  const fresh = await login(email);
+  const audit = await call('GET', '/api/security/audit', { token: fresh.body.token });
+  assert.ok(audit.body.some((e) => e.type === 'refresh_token_reuse'));
+});
+
+test('sessions: logout ends one login, logout-all ends every login', async () => {
+  const a = await registerFull();
+  const b = await login(a.email, {}, INDIA_2);
+  assert.equal((await call('POST', '/api/auth/logout', { body: { refreshToken: a.refreshToken } })).status, 200);
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: a.refreshToken } })).status, 401);
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: 'f'.repeat(64) } })).status, 401);
+
+  assert.equal((await call('POST', '/api/auth/logout-all', { token: b.body.token })).status, 200);
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: b.body.refreshToken } })).status, 401);
+});
+
+test('sessions: revoking a device or resetting the password ends its refresh tokens', async () => {
+  const { email, token } = await registerFull();
+  const attempt = await login(email, { deviceId: DEVICE_B });
+  await call('POST', `/api/approval/${attempt.body.challengeId}/respond`, {
+    token,
+    body: { action: 'approve', choice: attempt.body.displayNumber, trustDevice: true },
+  });
+  const onB = await call('POST', '/api/auth/login/complete', {
+    body: { challengeId: attempt.body.challengeId, pollSecret: attempt.body.pollSecret, deviceId: DEVICE_B },
+  });
+  assert.ok(onB.body.refreshToken);
+
+  const devices = await call('GET', '/api/devices', { token });
+  const b = devices.body.find((d) => !d.current);
+  await call('DELETE', `/api/devices/${b.id}`, { token });
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: onB.body.refreshToken } })).status, 401);
+
+  const again = await login(email);
+  const logs = [];
+  const original = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+  await call('POST', '/api/auth/forgot-password', { body: { email } });
+  console.log = original;
+  const resetToken = logs.join('\n').match(/[0-9a-f]{64}/)[0];
+  await call('POST', '/api/auth/reset-password', { body: { token: resetToken, password: 'newpass99x' } });
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: again.body.refreshToken } })).status, 401);
+});
+
+test('recovery codes: generate needs the password and a trusted device, codes are single use', async () => {
+  const { email, token } = await registerFull();
+  assert.equal((await call('POST', '/api/recovery', { token, body: { password: 'wrong' } })).status, 403);
+
+  const gen = await call('POST', '/api/recovery', { token, body: { password: PASSWORD } });
+  assert.equal(gen.status, 200);
+  assert.equal(gen.body.codes.length, 10);
+  assert.ok(gen.body.codes.every((c) => /^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){2}$/.test(c)));
+  assert.equal(new Set(gen.body.codes).size, 10);
+  assert.equal((await call('GET', '/api/recovery', { token })).body.remaining, 10);
+
+  const { query } = await import('../lib/db.js');
+  const { rows } = await query('select code_hash from recovery_codes');
+  assert.ok(rows.every((r) => !gen.body.codes.some((c) => r.code_hash.includes(c.replace(/-/g, '')))), 'only hashes are stored');
+
+  const recoverWith = (code, deviceId = DEVICE_B) =>
+    call('POST', '/api/auth/recover', { body: { email, password: PASSWORD, recoveryCode: code, deviceId, deviceName: 'New phone' } });
+
+  const ok = await recoverWith(gen.body.codes[0].toLowerCase().replace(/-/g, ' '));
+  assert.equal(ok.status, 200, 'case, spaces and dashes do not matter');
+  assert.equal(ok.body.remainingCodes, 9);
+  assert.equal((await recoverWith(gen.body.codes[0])).body.code, 'RECOVERY_INVALID', 'single use');
+  assert.equal((await recoverWith('AAAA-BBBB-CCCC')).status, 401);
+
+  // The recovering device is trusted; the old one lost trust and its sessions.
+  assert.equal((await call('GET', '/api/approval/pending', { token: ok.body.token })).status, 200);
+  assert.equal((await call('GET', '/api/approval/pending', { token })).status, 403);
+  assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: ok.body.refreshToken } })).status, 200);
+
+  const audit = await call('GET', '/api/security/audit', { token: ok.body.token });
+  assert.ok(audit.body.some((e) => e.type === 'recovery_used'));
+
+  const wrongPassword = await call('POST', '/api/auth/recover', {
+    body: { email, password: 'nope', recoveryCode: gen.body.codes[1], deviceId: DEVICE_B },
+  });
+  assert.equal(wrongPassword.status, 400);
+});
+
+test('recovery codes: regenerating invalidates the old set, and a locked account cannot recover', async () => {
+  const { email, token } = await registerFull();
+  const first = await call('POST', '/api/recovery', { token, body: { password: PASSWORD } });
+  const second = await call('POST', '/api/recovery', { token, body: { password: PASSWORD } });
+  const body = (code) => ({ email, password: PASSWORD, recoveryCode: code, deviceId: DEVICE_B });
+  assert.equal((await call('POST', '/api/auth/recover', { body: body(first.body.codes[0]) })).status, 401);
+
+  const attempt = await login(email, { deviceId: 'd'.repeat(32) }, '24.24.24.24');
+  await call('POST', `/api/approval/${attempt.body.challengeId}/report`, { token });
+  const locked = await call('POST', '/api/auth/recover', { body: body(second.body.codes[0]) });
+  assert.equal(locked.status, 423);
+});

@@ -37,7 +37,8 @@ export const config = {
   // Supabase requires TLS. Set DATABASE_SSL=false for a local Postgres.
   databaseSsl: process.env.DATABASE_SSL !== 'false',
   jwtSecret: required('JWT_SECRET'),
-  jwtExpiresIn: '1h',
+  jwtExpiresIn: '15m',
+  accessTokenSeconds: 900,
   encryptionKey: encryptionKey(),
   // Origins allowed to call the API. Empty means any origin (CORS) and
   // disables the unrecognized-origin risk signal.

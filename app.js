@@ -10,6 +10,7 @@ import totpRoutes from './routes/totpRoutes.js';
 import approvalRoutes from './routes/approvalRoutes.js';
 import deviceRoutes from './routes/deviceRoutes.js';
 import securityRoutes from './routes/securityRoutes.js';
+import recoveryRoutes from './routes/recoveryRoutes.js';
 import vaultRoutes from './routes/vaultRoutes.js';
 import passkeyRoutes from './routes/passkeyRoutes.js';
 import blockchainRoutes from './routes/blockchainRoutes.js';
@@ -39,6 +40,7 @@ const createApp = () => {
   app.use('/api/approval', approvalRoutes);
   app.use('/api/devices', deviceRoutes);
   app.use('/api/security', securityRoutes);
+  app.use('/api/recovery', recoveryRoutes);
   app.use('/api/vault', vaultRoutes);
   app.use('/api/passkeys', passkeyRoutes);
   app.use('/api/blockchain', blockchainRoutes);

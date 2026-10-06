@@ -1,6 +1,7 @@
 import * as approvals from '../repositories/approvalRepository.js';
 import * as users from '../repositories/userRepository.js';
 import * as blockedIps from '../repositories/blockedIpRepository.js';
+import { revokeForUser } from '../repositories/refreshTokenRepository.js';
 import { APPROVAL_MAX_WRONG_ATTEMPTS, BLOCK_DAYS } from '../config/risk.js';
 import { toApproverView } from '../services/approvalService.js';
 import { audit } from '../services/auditService.js';
@@ -68,6 +69,7 @@ const report = asyncHandler(async (req, res) => {
   await Promise.all([
     blockedIps.block(approval.ip, 'reported by account owner', new Date(Date.now() + BLOCK_DAYS * 86400000)),
     users.lock(userId),
+    revokeForUser(userId),
   ]);
   notifyApprovalResolved(userId, id, 'denied');
   await audit(userId, 'login_reported', req.ip, { challengeId: id, blockedIp: approval.ip });

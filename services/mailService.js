@@ -36,4 +36,14 @@ const sendPasswordReset = async (email, token) => {
   });
 };
 
-export { sendPasswordReset };
+// Best-effort heads-up about a sensitive account event.
+const sendSecurityNotice = async (email, subject, text) => {
+  const smtp = getTransport();
+  if (!smtp) {
+    if (config.env !== 'production') console.log(`[dev] notice to ${email}: ${subject}`);
+    return;
+  }
+  await smtp.sendMail({ from: config.smtp.from, to: email, subject, text });
+};
+
+export { sendPasswordReset, sendSecurityNotice };

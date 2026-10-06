@@ -5,7 +5,7 @@ import * as events from '../repositories/eventRepository.js';
 import { lookupGeo, normalizeIp, localHour } from '../utils/geo.js';
 import { sha256 } from '../utils/crypto.js';
 import { scoreLogin } from './riskService.js';
-import { signToken } from './authService.js';
+import { issueSession } from './sessionService.js';
 import { isAnonymizingIp } from './ipReputationService.js';
 
 // What the server itself observed about this request. The site comes from the
@@ -55,14 +55,15 @@ const assessLogin = async (user, deviceId, ctx, recentFailures) => {
   return { deviceHash, risk };
 };
 
-// Record a successful login, register or refresh the device, and issue the JWT.
+// Record a successful login, register or refresh the device, and start a session
+// ({token, refreshToken, expiresInSeconds}).
 // `trust` is true for the baseline device, or when an approver chose to trust it.
 const completeLogin = async (user, { deviceHash, deviceName, trust, ctx, risk }) => {
   await Promise.all([
     devices.upsert(user.id, deviceHash, { name: deviceName, ip: ctx.ip, trust, now: ctx.now }),
     recordEvent(user.id, 'success', ctx, deviceHash, risk),
   ]);
-  return signToken(user.id, deviceHash);
+  return issueSession(user.id, deviceHash);
 };
 
 export { requestContext, recordEvent, countRecentFailures, assessLogin, completeLogin };
