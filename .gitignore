@@ -72,3 +72,6 @@ node_modules/
 # macOS
 .DS_Store
 
+
+# Supabase CLI cache
+supabase/.temp/
