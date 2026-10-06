@@ -5,3 +5,5 @@ process.env.TRUST_PROXY = '1';
 process.env.RATE_LIMIT_DISABLED = 'true';
 process.env.WEBAUTHN_RP_ID = 'localhost';
 process.env.WEBAUTHN_ORIGINS = 'http://localhost:3000';
+// Tests of token-reuse detection need it immediate; one test turns the grace window on.
+process.env.REFRESH_REUSE_LEEWAY_SECONDS = '0';

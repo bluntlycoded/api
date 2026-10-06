@@ -53,6 +53,11 @@ const generateOtp = asyncHandler(async (req, res) => {
   res.status(200).json(generateCode(current));
 });
 
+const syncCounters = asyncHandler(async (req, res) => {
+  for (const { id, counter } of req.body.counters) await apps.raiseCounter(req.user.userId, id, counter);
+  res.status(200).json({ message: 'Counters synced' });
+});
+
 const reorderApps = asyncHandler(async (req, res) => {
   await apps.reorder(req.user.userId, req.body.ids);
   res.status(200).json({ message: 'Order saved' });
@@ -85,4 +90,4 @@ const exportApps = asyncHandler(async (req, res) => {
   res.status(200).json({ uris: all.map(toOtpauthUri) });
 });
 
-export { addApp, getApps, updateApp, deleteApp, generateOtp, reorderApps, importApps, exportApps };
+export { addApp, getApps, updateApp, deleteApp, generateOtp, syncCounters, reorderApps, importApps, exportApps };

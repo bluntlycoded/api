@@ -38,7 +38,16 @@ const invalid = () => new HttpError(401, 'Session expired. Please log in again.'
 // so the whole family is revoked and the user has to log in again.
 const refreshSession = async (refreshToken, ip) => {
   const tokenHash = sha256(refreshToken);
-  const row = await refreshTokens.consume(tokenHash);
+  let row = await refreshTokens.consume(tokenHash);
+
+  if (!row) {
+    const known = await refreshTokens.findByHash(tokenHash);
+    // Used moments ago and not revoked: most likely the same client retrying after
+    // losing the response, so it gets a fresh pair instead of ending the login.
+    const justUsed =
+      known && !known.revokedAt && known.usedAt && Date.now() - new Date(known.usedAt).getTime() <= config.refreshReuseLeewayMs;
+    if (justUsed) row = known;
+  }
 
   if (!row) {
     const known = await refreshTokens.findByHash(tokenHash);

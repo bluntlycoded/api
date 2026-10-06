@@ -1,42 +1,46 @@
 import { h, toast, guarded } from './dom.js';
-import { api } from './api.js';
+import { api, isNetworkError } from './api.js';
+import { codeFor, secondsRemaining } from './otp.js';
+import * as vault from './vault.js';
 
 const group = (otp) => (otp.length === 6 ? `${otp.slice(0, 3)} ${otp.slice(3)}` : otp.length === 8 ? `${otp.slice(0, 4)} ${otp.slice(4)}` : otp);
 
-// One account with a live code. TOTP codes renew themselves; HOTP codes are
-// generated on request because each one uses up a counter value.
-const entryCard = (app, timers) => {
+// One account with a live code, computed on this device. TOTP codes renew on their
+// own; HOTP codes are made on request because each one uses up a counter value.
+const entryCard = (entry, nextHotp) => {
   const code = h('div', { class: 'code' }, '······');
   const fill = h('div', { class: 'bar-fill' });
-  const period = app.period || 30;
-  const title = app.issuer || app.appName;
-  const subtitle = app.account && app.account !== title ? app.account : '';
+  const period = entry.period || 30;
+  const title = entry.issuer || entry.appName;
+  const subtitle = entry.account && entry.account !== title ? entry.account : '';
+  let step = -1;
 
-  const load = async () => {
-    try {
-      const { otp, expiresInSeconds } = await api('GET', `/api/addapp/${app.id}/otp`);
-      code.textContent = group(otp);
-      if (expiresInSeconds === undefined) return;
-      fill.style.transition = 'none';
-      fill.style.width = `${(expiresInSeconds / period) * 100}%`;
-      requestAnimationFrame(() => {
-        fill.style.transition = `width ${expiresInSeconds}s linear`;
-        fill.style.width = '0%';
-      });
-      timers.push(setTimeout(load, expiresInSeconds * 1000 + 300));
-    } catch (err) {
-      code.textContent = '—';
-      toast(err.message);
-    }
+  const tick = async (now) => {
+    const current = Math.floor(now / 1000 / period);
+    fill.style.width = `${(secondsRemaining(period, now) / period) * 100}%`;
+    if (current === step) return;
+    step = current;
+    fill.style.transition = 'none';
+    requestAnimationFrame(() => { fill.style.transition = ''; });
+    code.textContent = group(await codeFor(entry, now));
   };
 
-  const body = [h('div', { class: 'row space' }, h('div', {}, h('strong', {}, title), subtitle ? h('div', { class: 'muted' }, subtitle) : ''))];
-  if (app.type === 'hotp') body.push(code, h('button', { onclick: load }, 'Generate next code'));
-  else {
-    body.push(code, h('div', { class: 'bar-track' }, fill));
-    load();
+  const head = h('div', { class: 'row space' }, h('div', {}, h('strong', {}, title), subtitle ? h('div', { class: 'muted' }, subtitle) : ''));
+  if (entry.type === 'hotp') {
+    const button = h('button', {}, 'Generate next code');
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        code.textContent = group(await nextHotp(entry));
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return { el: h('div', { class: 'card' }, head, code, button), tick: () => {} };
   }
-  return h('div', { class: 'card' }, body);
+  return { el: h('div', { class: 'card' }, head, code, h('div', { class: 'bar-track' }, fill)), tick };
 };
 
 const addForm = (reload) => {
@@ -65,24 +69,119 @@ const addForm = (reload) => {
     h('form', { class: 'stack', onsubmit: submit }, label, secret, error, button));
 };
 
-export const mountCodes = (container) => {
-  let timers = [];
-  const list = h('div', {});
+const unlockForm = (message, onUnlocked) => {
+  const passcode = h('input', { type: 'password', placeholder: 'Offline passcode', autocomplete: 'current-password', required: true });
+  const error = h('div', { class: 'error', role: 'alert' });
+  const button = h('button', { class: 'primary', type: 'submit' }, 'Unlock');
+  const submit = guarded(button, error, async () => {
+    onUnlocked(await vault.unlock(passcode.value));
+    passcode.value = '';
+  });
+  return h('form', { class: 'card stack', onsubmit: submit }, h('p', { class: 'muted' }, message), passcode, error, button);
+};
 
-  const load = async () => {
-    timers.forEach(clearTimeout);
-    timers = [];
+export const mountCodes = (container, { offline = false } = {}) => {
+  const banner = h('div', {});
+  const list = h('div', {});
+  const addArea = h('div', {});
+  let cards = [];
+  let entries = [];
+  let working = offline;
+
+  const tickAll = () => {
+    const now = Date.now();
+    cards.forEach((card) => card.tick(now));
+  };
+  const timer = setInterval(tickAll, 1000);
+
+  const show = (items) => {
+    entries = items;
     list.replaceChildren();
+    cards = entries.map((entry) => entryCard(entry, nextHotp));
+    if (!cards.length) list.append(h('p', { class: 'muted' }, working ? 'No accounts in the offline copy.' : 'No accounts yet. Add one below.'));
+    cards.forEach((card) => list.append(card.el));
+    tickAll();
+  };
+
+  const showLocked = (message) => {
+    cards = [];
+    list.replaceChildren(unlockForm(message, (data) => show(data.entries)));
+  };
+
+  // HOTP: online, the server owns the counter. Offline, the device advances it,
+  // remembers it, and sends it back later (the server only ever moves it forward).
+  async function nextHotp(entry) {
+    if (!working) {
+      try {
+        const { otp, counter } = await api('GET', `/api/addapp/${entry.id}/otp`);
+        entry.counter = counter + 1;
+        if (vault.isUnlocked()) await vault.save({ ...vault.getData(), entries });
+        return otp;
+      } catch (err) {
+        if (!isNetworkError(err)) throw err;
+      }
+    }
+    if (!vault.isUnlocked()) throw new Error('Unlock your offline copy first.');
+    const otp = await codeFor(entry);
+    entry.counter += 1;
+    const data = vault.getData();
+    await vault.save({ ...data, entries, pendingCounters: { ...data.pendingCounters, [entry.id]: entry.counter } });
+    return otp;
+  }
+
+  const flushCounters = async () => {
+    const pending = Object.entries(vault.getData()?.pendingCounters ?? {});
+    if (!pending.length) return;
+    await api('PUT', '/api/addapp/counters', { counters: pending.map(([id, counter]) => ({ id, counter })) });
+    await vault.save({ ...vault.getData(), pendingCounters: {} });
+  };
+
+  // Offline mode: codes come from the encrypted copy, so it has to be unlocked.
+  const loadOffline = () => {
+    working = true;
+    banner.replaceChildren(h('div', { class: 'notice' }, 'You are offline. Codes are generated on this device, so they depend on its clock being right.'));
+    addArea.replaceChildren();
+    if (vault.isUnlocked()) show(vault.getData().entries);
+    else showLocked('Enter your offline passcode to see your codes.');
+  };
+
+  const loadOnline = async () => {
+    working = false;
+    banner.replaceChildren();
     try {
-      const apps = await api('GET', '/api/addapp');
-      if (!apps.length) list.append(h('p', { class: 'muted' }, 'No accounts yet. Add one below.'));
-      apps.forEach((app) => list.append(entryCard(app, timers)));
+      if (vault.isUnlocked()) await flushCounters();
+      const items = await api('GET', '/api/addapp');
+      show(items);
+      addArea.replaceChildren(addForm(loadOnline));
+      if (vault.isUnlocked()) await vault.save({ entries: items, pendingCounters: {} });
+      else if (await vault.hasVault()) {
+        banner.replaceChildren(unlockForm('Unlock your offline copy to keep it up to date.', () => loadOnline()));
+      }
     } catch (err) {
-      list.append(h('div', { class: 'error' }, err.message));
+      if (!isNetworkError(err)) {
+        list.replaceChildren(h('div', { class: 'error' }, err.message));
+        return;
+      }
+      if (await vault.hasVault()) loadOffline();
+      else list.replaceChildren(h('div', { class: 'error' }, 'You are offline. Turn on offline access in Security (while online) to use your codes without a connection.'));
     }
   };
 
-  container.append(h('h2', {}, 'Your codes'), list, addForm(load));
-  load();
-  return () => timers.forEach(clearTimeout);
+  const stopWatching = vault.onLockChange(async (unlocked) => {
+    if (unlocked || !working) return;
+    if (await vault.hasVault()) showLocked('Locked. Enter your passcode to see your codes.');
+    else {
+      cards = [];
+      list.replaceChildren(h('p', { class: 'muted' }, 'The offline copy on this device was removed. Reconnect and sign in again.'));
+    }
+  });
+
+  container.append(h('h2', {}, 'Your codes'), banner, list, addArea);
+  if (offline) loadOffline();
+  else loadOnline();
+
+  return () => {
+    clearInterval(timer);
+    stopWatching();
+  };
 };

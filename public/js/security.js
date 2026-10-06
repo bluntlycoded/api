@@ -1,5 +1,6 @@
 import { h, toast, guarded } from './dom.js';
 import { api } from './api.js';
+import * as vault from './vault.js';
 
 const when = (iso) => new Date(iso).toLocaleString();
 
@@ -84,8 +85,65 @@ const activitySection = () => {
   return h('section', {}, h('h2', {}, 'Recent sign-ins'), list);
 };
 
+// Opt-in: keeps an encrypted copy of the codes on this device so they work with no
+// connection. Without it, nothing secret is ever written to disk here.
+const offlineSection = () => {
+  const box = h('div', {});
+
+  const enableForm = () => {
+    const passcode = h('input', { type: 'password', placeholder: `New passcode (at least ${vault.MIN_PASSCODE} characters)`, autocomplete: 'new-password', required: true });
+    const again = h('input', { type: 'password', placeholder: 'Repeat the passcode', autocomplete: 'new-password', required: true });
+    const error = h('div', { class: 'error', role: 'alert' });
+    const button = h('button', { class: 'primary', type: 'submit' }, 'Turn on offline access');
+    const submit = guarded(button, error, async () => {
+      if (passcode.value.length < vault.MIN_PASSCODE) throw new Error(`Use at least ${vault.MIN_PASSCODE} characters.`);
+      if (passcode.value !== again.value) throw new Error('The passcodes do not match.');
+      const entries = await api('GET', '/api/addapp');
+      await vault.enable(passcode.value, { entries, pendingCounters: {} });
+      toast('Offline access is on');
+      render();
+    });
+    return h('form', { class: 'stack', onsubmit: submit }, passcode, again, error, button);
+  };
+
+  const manage = () => {
+    const unlocked = vault.isUnlocked();
+    const passcode = h('input', { type: 'password', placeholder: 'Offline passcode', autocomplete: 'current-password' });
+    const error = h('div', { class: 'error', role: 'alert' });
+    const update = h('button', { type: 'button' }, unlocked ? 'Update now' : 'Unlock and update');
+    update.addEventListener('click', guarded(update, error, async () => {
+      if (!vault.isUnlocked()) await vault.unlock(passcode.value);
+      const entries = await api('GET', '/api/addapp');
+      await vault.save({ entries, pendingCounters: vault.getData()?.pendingCounters ?? {} });
+      toast('Offline copy updated');
+      render();
+    }));
+    const off = h('button', { class: 'danger', type: 'button' }, 'Turn off and delete the copy');
+    off.addEventListener('click', async () => {
+      if (!confirm('Delete the offline copy from this device? Your accounts stay safe on the server.')) return;
+      await vault.wipe();
+      toast('Offline copy deleted');
+      render();
+    });
+    return h('div', { class: 'stack' },
+      h('div', { class: 'row space' }, h('strong', {}, 'Offline access is on'), h('span', { class: 'badge' }, unlocked ? 'unlocked' : 'locked')),
+      unlocked ? '' : passcode, error,
+      h('div', { class: 'row' }, update, unlocked ? h('button', { type: 'button', onclick: () => { vault.lock(); render(); } }, 'Lock now') : '', off));
+  };
+
+  const render = async () => {
+    box.replaceChildren(await vault.hasVault() ? manage() : enableForm());
+  };
+  render();
+
+  return h('section', {}, h('h2', {}, 'Offline access'),
+    h('p', { class: 'muted' }, 'Keep an encrypted copy of your codes on this device so they work with no connection. Only a passcode you choose opens it. It locks after 5 idle minutes, and it is deleted if you log out or this device is removed. If you forget the passcode, turn it off and on again while online.'),
+    h('div', { class: 'card' }, box));
+};
+
 export const mountSecurity = (container, { onLogoutAll }) => {
   container.append(
+    offlineSection(),
     devicesSection(),
     recoverySection(),
     activitySection(),

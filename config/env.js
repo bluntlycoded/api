@@ -39,6 +39,9 @@ export const config = {
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: '15m',
   accessTokenSeconds: 900,
+  // A refresh token that was just used may be presented again within this window
+  // (a page reloaded before it could save the new token) without ending the login.
+  refreshReuseLeewayMs: Number(process.env.REFRESH_REUSE_LEEWAY_SECONDS ?? 10) * 1000,
   encryptionKey: encryptionKey(),
   // Origins allowed to call the API. Empty means any origin (CORS) and
   // disables the unrecognized-origin risk signal.

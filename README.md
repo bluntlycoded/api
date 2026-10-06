@@ -92,6 +92,7 @@ Routes marked *trusted* also need a session from a trusted device.
 | `POST /api/auth/passkey/options`, `POST /api/auth/passkey/verify` *public* | Sign in with a passkey (no password, no approval step) |
 | `POST /api/addapp` | Save an entry: `appName`, base32 `secretKey`, optional `issuer`, `account`, `type` (totp/hotp), `algorithm`, `digits`, `period`, `counter`, `folder`, `icon`, `favorite` |
 | `GET /api/addapp?q=&folder=&favorite=` | List or search entries |
+| `PUT /api/addapp/counters` | Sync counter-based codes generated offline (counters only move forward) |
 | `PATCH /api/addapp/:appId` | Rename, move to a folder, set icon or favorite |
 | `PUT /api/addapp/order` | `{ids: [...]}` sets the display order |
 | `GET /api/addapp/:appId/otp` | Current code (HOTP advances its counter) |
@@ -119,6 +120,30 @@ Socket.IO: connect, then emit `authenticate {token}` (trusted device) or
 `watch {challengeId, pollSecret}` (login screen). Events: `approval_request`,
 `approval_resolved`, `approval_closed`.
 
+## Offline use
+
+Codes are computed on the device (`public/js/otp.js`, checked against the RFC 4226 and 6238
+vectors and against an independent HMAC), so the Codes tab makes no server call per code. A
+service worker (`public/sw.js`) caches the app's own files so the client opens with no connection.
+It never touches API or socket traffic.
+
+For codes with no connection at all, turn on **offline access** in the Security tab. That keeps an
+encrypted copy of the entries on the device: AES-256-GCM, with a key stretched from a passcode
+you choose (PBKDF2-SHA256, 600,000 rounds, at least 8 characters). The passcode and key never
+leave the device. Without it nothing secret is ever written to disk.
+
+- The copy locks after 5 idle minutes or on request, and is deleted on logout or when the server
+  rejects this device's session (so a removed device loses it the next time it connects).
+- Offline you can see and use codes. Signing in and approving other people's sign-ins need the
+  network, and adding or editing entries waits until you are back online.
+- Counter-based codes made offline advance a local counter and sync back when online; the
+  server only ever moves a counter forward (`PUT /api/addapp/counters`).
+- Limits: codes depend on the device's clock; a stolen, still-offline phone keeps working until it
+  reconnects, which is why the copy is passcode-locked; a browser cannot protect the copy from
+  script running in the page as well as an OS keychain can, so mobile apps should store it there.
+- The worker serves cached files first and refreshes them in the background, so an update shows
+  on the load after it is fetched. Bump `VERSION` in `sw.js` when the file list changes.
+
 ## Sessions and recovery
 
 Access tokens last 15 minutes. Every login also returns a refresh token (30 days, and at most
@@ -127,6 +152,11 @@ retires the old. Presenting an already-used token means it was copied, so that w
 is ended and the event is audited. Removing a device, resetting the password, "this wasn't
 me", logout-all and account recovery all end the affected refresh tokens; an access token
 already issued still works until it expires (up to 15 minutes).
+
+A refresh token that was used moments ago may be presented once more within a short window
+(`REFRESH_REUSE_LEEWAY_SECONDS`, default 10) and gets a fresh pair, because a page reloaded
+before it could save the new token would otherwise sign itself out. Outside that window reuse
+still ends the login.
 
 Recovery codes are ten single-use codes (60 bits each) stored only as hashes and shown once.
 Recovering from a new device needs the password and one code, makes that device the only

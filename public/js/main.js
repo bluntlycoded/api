@@ -1,5 +1,6 @@
 import { h, clear } from './dom.js';
-import { api, profile, hasRefreshToken, refresh, clearSession } from './api.js';
+import { api, profile, hasRefreshToken, refresh, clearSession, isNetworkError } from './api.js';
+import * as vault from './vault.js';
 import { showAuth } from './auth.js';
 import { mountApprovals } from './approvals.js';
 import { mountCodes } from './codes.js';
@@ -17,6 +18,8 @@ const showHome = () => {
 
   const logout = async () => {
     unmount();
+    // A logged-out device keeps nothing secret behind.
+    await vault.wipe();
     const token = localStorage.getItem(`fs:${profile}:refresh`);
     if (token) await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: token }) }).catch(() => {});
     clearSession();
@@ -55,17 +58,49 @@ const showHome = () => {
   select(current);
 };
 
+// No connection (or the server is down) but this device has an offline copy.
+const showOffline = () => {
+  const body = h('main', {});
+  clear(root);
+  root.append(
+    h('header', { class: 'bar' },
+      h('strong', {}, 'FraudShield'),
+      h('div', { class: 'row' },
+        h('span', { class: 'badge' }, 'Offline'),
+        h('button', { onclick: () => vault.lock() }, 'Lock'),
+        h('button', { onclick: () => location.reload() }, 'Reconnect')
+      )
+    ),
+    body
+  );
+  mountCodes(body, { offline: true });
+};
+
+const registerWorker = () => {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/app/sw.js').catch(() => {});
+};
+
 const boot = async () => {
+  registerWorker();
   if (hasRefreshToken()) {
     try {
       await refresh();
       await api('GET', '/api/devices');
       return showHome();
-    } catch {
+    } catch (err) {
+      if (isNetworkError(err)) {
+        if (await vault.hasVault()) return showOffline();
+        return showAuth(root, { onSession: showHome, notice: 'You are offline. Connect to the internet to continue.' });
+      }
       clearSession();
     }
   }
   showAuth(root, { onSession: showHome });
 };
+
+// Keep the offline copy from locking while the app is in use, and delete it if the
+// server tells us this device is no longer allowed.
+for (const event of ['pointerdown', 'keydown']) addEventListener(event, () => vault.touch());
+addEventListener('session-revoked', () => vault.wipe());
 
 boot();

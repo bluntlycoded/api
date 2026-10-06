@@ -60,6 +60,15 @@ const remove = async (userId, id) => (await query('delete from user_apps where i
 const nextCounter = async (userId, id) =>
   toApp(await one(`update user_apps set counter = counter + 1 where id = $1 and user_id = $2 and type = 'hotp' returning *`, [id, userId]));
 
+// Offline devices advance HOTP counters locally. Syncing only ever moves a counter
+// forward, so a stale device can never make the server reuse a code.
+const raiseCounter = async (userId, id, counter) =>
+  (await query(
+    `update user_apps set counter = case when counter < $3 then $3 else counter end
+     where id = $1 and user_id = $2 and type = 'hotp'`,
+    [id, userId, counter]
+  )).rowCount === 1;
+
 const reorder = async (userId, ids) => {
   const params = [userId, ...ids];
   const cases = ids.map((_, i) => `when $${i + 2}::uuid then ${i}`).join(' ');
@@ -69,4 +78,4 @@ const reorder = async (userId, ids) => {
 
 const count = async (userId) => Number((await one('select count(*)::int as n from user_apps where user_id = $1', [userId])).n);
 
-export { insert, list, findOne, update, remove, nextCounter, reorder, count };
+export { insert, list, findOne, update, remove, nextCounter, raiseCounter, reorder, count };

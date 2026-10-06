@@ -481,6 +481,27 @@ test('sessions: reusing a refresh token revokes the whole family', async () => {
   assert.ok(audit.body.some((e) => e.type === 'refresh_token_reuse'));
 });
 
+test('sessions: a just-used refresh token is forgiven briefly, then counts as theft', async () => {
+  const { config } = await import('../config/env.js');
+  const { refreshToken } = await registerFull();
+  config.refreshReuseLeewayMs = 5000;
+  try {
+    const first = await call('POST', '/api/auth/refresh', { body: { refreshToken } });
+    assert.equal(first.status, 200);
+    const retry = await call('POST', '/api/auth/refresh', { body: { refreshToken } });
+    assert.equal(retry.status, 200, 'a reload that lost the new token can try again');
+    assert.notEqual(retry.body.refreshToken, first.body.refreshToken);
+    assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: retry.body.refreshToken } })).status, 200);
+
+    config.refreshReuseLeewayMs = 0;
+    const late = await call('POST', '/api/auth/refresh', { body: { refreshToken } });
+    assert.equal(late.status, 401, 'outside the window it is treated as theft');
+    assert.equal((await call('POST', '/api/auth/refresh', { body: { refreshToken: retry.body.refreshToken } })).status, 401, 'and the family is revoked');
+  } finally {
+    config.refreshReuseLeewayMs = 0;
+  }
+});
+
 test('sessions: logout ends one login, logout-all ends every login', async () => {
   const a = await registerFull();
   const b = await login(a.email, {}, INDIA_2);
@@ -569,4 +590,21 @@ test('recovery codes: regenerating invalidates the old set, and a locked account
   await call('POST', `/api/approval/${attempt.body.challengeId}/report`, { token });
   const locked = await call('POST', '/api/auth/recover', { body: body(second.body.codes[0]) });
   assert.equal(locked.status, 423);
+});
+
+test('offline HOTP counters sync forward only', async () => {
+  const { token } = await registerFull();
+  const other = await registerFull();
+  const { body: entry } = await call('POST', '/api/addapp', { token, body: { appName: 'Bank', secretKey: 'JBSWY3DPEHPK3PXP', type: 'hotp' } });
+  const sync = (counter, t = token) => call('PUT', '/api/addapp/counters', { token: t, body: { counters: [{ id: entry.id, counter }] } });
+  const counterNow = async () => (await call('GET', '/api/addapp', { token })).body[0].counter;
+
+  assert.equal((await sync(7)).status, 200);
+  assert.equal(await counterNow(), 7);
+  await sync(3);
+  assert.equal(await counterNow(), 7, 'a stale device cannot move the counter back');
+  await sync(9, other.token);
+  assert.equal(await counterNow(), 7, 'other users cannot touch it');
+  assert.equal((await call('PUT', '/api/addapp/counters', { token, body: { counters: [{ id: 'nope', counter: 1 }] } })).status, 400);
+  assert.equal((await call('PUT', '/api/addapp/counters', { token, body: { counters: [] } })).status, 400);
 });

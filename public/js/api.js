@@ -47,6 +47,9 @@ const send = async (method, path, body, token) => {
   return { status: res.status, data };
 };
 
+// fetch() itself rejects (instead of returning a status) when there is no connection.
+const isNetworkError = (err) => !(err instanceof ApiError);
+
 const hasRefreshToken = () => Boolean(localStorage.getItem(key('refresh')));
 const getToken = () => accessToken;
 
@@ -69,7 +72,12 @@ const refresh = () => {
       return data;
     })
     .catch((err) => {
-      clearSession();
+      // Only a rejection from the server ends the session. A network failure must not
+      // sign the user out, since that is exactly when they are working offline.
+      if (err instanceof ApiError) {
+        clearSession();
+        if (err.code === 'REFRESH_INVALID') window.dispatchEvent(new Event('session-revoked'));
+      }
       throw err;
     })
     .finally(() => {
@@ -94,4 +102,4 @@ const api = async (method, path, body) => {
 // Calls that happen before there is a session (login, recovery, polling).
 const publicCall = (method, path, body) => send(method, path, body);
 
-export { profile, deviceId, deviceName, ApiError, api, publicCall, setSession, clearSession, hasRefreshToken, getToken, refresh };
+export { profile, deviceId, deviceName, ApiError, isNetworkError, api, publicCall, setSession, clearSession, hasRefreshToken, getToken, refresh };

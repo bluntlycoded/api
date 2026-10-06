@@ -99,6 +99,12 @@ export const reorderRules = validate(
   body('ids.*', 'Invalid id').isUUID()
 );
 
+export const countersRules = validate(
+  body('counters', 'counters must be a list of 1-100 entries').isArray({ min: 1, max: 100 }),
+  body('counters.*.id', 'Invalid id').isUUID(),
+  body('counters.*.counter', 'counter must be 0 or more').isInt({ min: 0 }).toInt()
+);
+
 export const importRules = validate(
   body('data', 'data is required').custom((v) => typeof v === 'string' || (typeof v === 'object' && v !== null))
 );

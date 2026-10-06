@@ -5,6 +5,7 @@ import {
   updateApp,
   deleteApp,
   generateOtp,
+  syncCounters,
   reorderApps,
   importApps,
   exportApps,
@@ -16,6 +17,7 @@ import {
   listAppRules,
   appIdRules,
   reorderRules,
+  countersRules,
   importRules,
   exportRules,
 } from '../middleware/validate.js';
@@ -27,6 +29,7 @@ router.use(verifyToken);
 router.post('/', addAppRules, addApp);
 router.get('/', listAppRules, getApps);
 router.put('/order', reorderRules, reorderApps);
+router.put('/counters', countersRules, syncCounters);
 router.post('/import', importRules, importApps);
 router.post('/export', requireTrustedDevice, exportRules, exportApps);
 router.patch('/:appId', updateAppRules, updateApp);
