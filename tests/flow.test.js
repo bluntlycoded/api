@@ -5,7 +5,7 @@ import { io as connect } from 'socket.io-client';
 import { authenticator } from 'otplib';
 import { useTestDb } from './helpers/testDb.js';
 
-useTestDb();
+await useTestDb();
 const { default: createApp } = await import('../app.js');
 const { initRealtime } = await import('../services/realtime.js');
 
@@ -218,14 +218,15 @@ test('two-factor: setup, enable, required at login, codes cannot be reused', asy
 
   const bad = await call('POST', '/api/totp/enable', { token, body: { token: '000000' === authenticator.generate(secret) ? '111111' : '000000' } });
   assert.equal(bad.status, 400);
-  const enabled = await call('POST', '/api/totp/enable', { token, body: { token: authenticator.generate(secret) } });
+  const enableCode = authenticator.generate(secret);
+  const enabled = await call('POST', '/api/totp/enable', { token, body: { token: enableCode } });
   assert.equal(enabled.status, 200);
 
   const missing = await login(email);
   assert.equal(missing.body.code, 'TOTP_REQUIRED');
 
   // The code used to enable is spent; a code from the next step still works once.
-  const spent = await login(email, { totp: authenticator.generate(secret) });
+  const spent = await login(email, { totp: enableCode });
   assert.equal(spent.body.code, 'TOTP_INVALID');
   const next = authenticator.clone({ epoch: Date.now() + 30000 }).generate(secret);
   const ok = await login(email, { totp: next });

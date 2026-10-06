@@ -13,7 +13,7 @@ const { default: createApp } = await import('../app.js');
 const { initRealtime } = await import('../services/realtime.js');
 const { config } = await import('../config/env.js');
 
-useTestDb();
+await useTestDb();
 const server = http.createServer(createApp());
 initRealtime(server);
 server.listen(config.port, () => {
