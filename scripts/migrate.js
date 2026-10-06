@@ -8,6 +8,9 @@ import { query, closePool } from '../lib/db.js';
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../supabase/migrations');
 
 await query('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');
+// On Supabase every public table is exposed over its REST API unless locked down.
+await query('alter table schema_migrations enable row level security');
+await query('revoke all on schema_migrations from anon, authenticated').catch(() => {});
 const { rows } = await query('select name from schema_migrations');
 const applied = new Set(rows.map((r) => r.name));
 
