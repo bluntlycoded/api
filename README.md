@@ -41,6 +41,8 @@ and device name); a test fails if `innerHTML` or similar appears. It keeps the r
 `localStorage`, which is fine for a demo but means any script injected into the page could read
 it; a production web app should use an httpOnly cookie instead.
 
+After the migrations run (by the Supabase GitHub integration or `npm run migrate`), `npm run check:db` confirms against the real database that every table exists, row level security is on, and the `anon` and `authenticated` roles have no access. It only reads.
+
 Tests run against an in-memory Postgres (pg-mem) with the real schema, so they need no database.
 
 ## How login works
