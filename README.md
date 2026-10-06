@@ -38,7 +38,7 @@ Tests run against an in-memory Postgres (pg-mem) with the real schema, so they n
    | New device | 40 |
    | Unrecognized website origin | 40 |
    | Impossible travel (over 900 km/h from the last login) | 60 |
-   | New country | 25 |
+   | New country | 30 |
    | 3+ failed attempts just before | 20 |
    | Odd hour (0-5 local, unless usual for the user) | 15 |
    | New IP | 10 |

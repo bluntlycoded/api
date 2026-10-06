@@ -5,7 +5,7 @@ export const RISK_WEIGHTS = {
   newDevice: 40,
   unrecognizedOrigin: 40,
   impossibleTravel: 60,
-  newCountry: 25,
+  newCountry: 30,
   recentFailures: 20,
   anonymizingIp: 15,
   oddHour: 15,
